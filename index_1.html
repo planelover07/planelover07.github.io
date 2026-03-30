@@ -1,0 +1,963 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VECTRA — Flight Operations</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@300;400;500;600;700&family=Orbitron:wght@400;500;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+:root {
+  --bg-void:#020408; --bg-card:#0a1520; --bg-card-hover:#0f1e2e;
+  --accent-cyan:#00d4ff; --accent-cyan-dim:#0099bb;
+  --accent-green:#00ff9d; --accent-amber:#ffaa00; --accent-red:#ff3355;
+  --border-subtle:rgba(0,212,255,0.12); --border-active:rgba(0,212,255,0.4);
+  --text-primary:#e0f4ff; --text-secondary:rgba(180,220,240,0.6); --text-dim:rgba(100,160,190,0.4);
+  --glow-cyan:0 0 20px rgba(0,212,255,0.3); --glow-green:0 0 20px rgba(0,255,157,0.3);
+  --grid-line:rgba(0,212,255,0.055);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden}
+body{background:var(--bg-void);color:var(--text-primary);font-family:'Rajdhani',sans-serif}
+body::before{content:'';position:fixed;inset:0;z-index:0;background-image:linear-gradient(var(--grid-line) 1px,transparent 1px),linear-gradient(90deg,var(--grid-line) 1px,transparent 1px);background-size:40px 40px;pointer-events:none}
+
+/* CORNERS */
+.cd{position:fixed;width:80px;height:80px;z-index:2;pointer-events:none}
+.cd::before,.cd::after{content:'';position:absolute;background:var(--accent-cyan)}
+.cd.tl{top:0;left:0}.cd.tl::before{top:0;left:0;width:2px;height:36px}.cd.tl::after{top:0;left:0;width:36px;height:2px}
+.cd.tr{top:0;right:0}.cd.tr::before{top:0;right:0;width:2px;height:36px}.cd.tr::after{top:0;right:0;width:36px;height:2px}
+.cd.bl{bottom:0;left:0}.cd.bl::before{bottom:0;left:0;width:2px;height:36px}.cd.bl::after{bottom:0;left:0;width:36px;height:2px}
+.cd.br{bottom:0;right:0}.cd.br::before{bottom:0;right:0;width:2px;height:36px}.cd.br::after{bottom:0;right:0;width:36px;height:2px}
+
+/* HEADER */
+header{position:relative;z-index:10;display:flex;align-items:center;justify-content:space-between;padding:10px 28px;border-bottom:1px solid var(--border-subtle);background:linear-gradient(180deg,rgba(2,8,18,0.97) 0%,rgba(2,8,14,0.9) 100%);backdrop-filter:blur(12px)}
+.logo{display:flex;align-items:center;gap:14px}
+.logo svg{width:32px;height:32px}
+.logo-text{font-family:'Orbitron',monospace;font-size:20px;font-weight:900;letter-spacing:6px;color:var(--accent-cyan);text-shadow:var(--glow-cyan)}
+.logo-sub{font-family:'Share Tech Mono',monospace;font-size:8px;color:var(--text-dim);letter-spacing:3px;margin-top:2px}
+.hstatus{display:flex;align-items:center;gap:20px}
+.si{display:flex;flex-direction:column;align-items:flex-end}
+.sl{font-family:'Share Tech Mono',monospace;font-size:8px;color:var(--text-dim);letter-spacing:2px}
+.sv{font-family:'Orbitron',monospace;font-size:12px;font-weight:500;color:var(--accent-cyan)}
+.live-badge{display:flex;align-items:center;gap:7px;padding:5px 12px;border:1px solid var(--accent-green);background:rgba(0,255,157,0.06);clip-path:polygon(7px 0%,100% 0%,calc(100% - 7px) 100%,0% 100%)}
+.live-dot{width:6px;height:6px;border-radius:50%;background:var(--accent-green);box-shadow:var(--glow-green);animation:pulse 1.4s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.4;transform:scale(0.7)}}
+.live-text{font-family:'Orbitron',monospace;font-size:9px;font-weight:700;color:var(--accent-green);letter-spacing:3px}
+
+/* LAYOUT */
+.main{display:grid;grid-template-columns:320px 1fr;height:calc(100vh - 57px);position:relative;z-index:5}
+
+/* SIDEBAR */
+.sidebar{background:rgba(4,9,16,0.98);border-right:1px solid var(--border-subtle);display:flex;flex-direction:column;overflow:hidden}
+.sbh{padding:14px 16px 10px;border-bottom:1px solid var(--border-subtle);display:flex;justify-content:space-between;align-items:center}
+.stitle{font-family:'Orbitron',monospace;font-size:9px;font-weight:500;letter-spacing:4px;color:var(--accent-cyan);display:flex;align-items:center;gap:7px}
+.stitle::before{content:'';width:3px;height:11px;background:var(--accent-cyan);box-shadow:var(--glow-cyan)}
+.alist{flex:1;overflow-y:auto;padding:6px}
+.alist::-webkit-scrollbar{width:2px}
+.alist::-webkit-scrollbar-thumb{background:var(--accent-cyan-dim);border-radius:2px}
+
+/* AIRCRAFT CARD */
+.ac-card{position:relative;margin-bottom:5px;padding:11px 13px;background:var(--bg-card);border:1px solid var(--border-subtle);cursor:pointer;transition:all 0.18s;clip-path:polygon(0 0,calc(100% - 9px) 0,100% 9px,100% 100%,9px 100%,0 calc(100% - 9px))}
+.ac-card::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,var(--accent-cyan),transparent);opacity:0;transition:opacity 0.2s}
+.ac-card:hover,.ac-card.sel{background:var(--bg-card-hover);border-color:var(--border-active)}
+.ac-card:hover::before,.ac-card.sel::before{opacity:1}
+.ct{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:9px}
+.tn{font-family:'Orbitron',monospace;font-size:14px;font-weight:700;color:var(--text-primary);letter-spacing:2px}
+.fs{display:flex;align-items:center;gap:4px;padding:2px 9px;font-family:'Share Tech Mono',monospace;font-size:8px;clip-path:polygon(4px 0%,100% 0%,calc(100% - 4px) 100%,0% 100%)}
+.fs.on{background:rgba(0,255,157,0.1);border:1px solid rgba(0,255,157,0.3);color:var(--accent-green)}
+.fs.off{background:rgba(100,140,160,0.07);border:1px solid rgba(100,140,160,0.14);color:var(--text-dim)}
+.sd{width:4px;height:4px;border-radius:50%}
+.on .sd{background:var(--accent-green);animation:pulse 1.4s infinite}
+.off .sd{background:var(--text-dim)}
+.cs{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}
+.cb{display:flex;flex-direction:column;gap:1px}
+.cl{font-family:'Share Tech Mono',monospace;font-size:7px;color:var(--text-dim);letter-spacing:1px}
+.cv{font-family:'Orbitron',monospace;font-size:11px;font-weight:500;color:var(--accent-cyan)}
+.cv.na{color:var(--text-dim);font-size:10px}
+.cr{margin-top:8px;padding-top:8px;border-top:1px solid var(--border-subtle);display:flex;align-items:center;gap:5px;font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--text-secondary)}
+
+/* SIDEBAR FOOTER */
+.sbf{padding:10px 16px;border-top:1px solid var(--border-subtle);background:rgba(0,212,255,0.02)}
+.fg{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.fst{display:flex;flex-direction:column;gap:2px}
+.fsl{font-family:'Share Tech Mono',monospace;font-size:8px;color:var(--text-dim);letter-spacing:2px}
+.fsv{font-family:'Orbitron',monospace;font-size:16px;font-weight:700}
+.fsv.g{color:var(--accent-green);text-shadow:var(--glow-green)}
+.fsv.c{color:var(--accent-cyan);text-shadow:var(--glow-cyan)}
+.fsv.s{font-size:10px;color:var(--text-secondary)}
+
+/* MAP */
+.map-wrap{position:relative;overflow:hidden}
+#map{width:100%;height:100%}
+
+/* MAP OVERLAYS */
+.mov{position:absolute;inset:0;pointer-events:none;z-index:500}
+.mtb{position:absolute;top:12px;left:12px;right:12px;display:flex;justify-content:space-between;align-items:flex-start;pointer-events:none}
+.sel-panel{background:rgba(3,8,16,0.93);border:1px solid var(--border-active);backdrop-filter:blur(14px);padding:13px 16px;min-width:280px;clip-path:polygon(0 0,calc(100% - 13px) 0,100% 13px,100% 100%,0 100%);pointer-events:all}
+.spl{font-family:'Share Tech Mono',monospace;font-size:7px;color:var(--text-dim);letter-spacing:3px;margin-bottom:5px}
+.spt{font-family:'Orbitron',monospace;font-size:20px;font-weight:900;color:var(--accent-cyan);text-shadow:var(--glow-cyan);letter-spacing:3px;margin-bottom:10px}
+.spg{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.sps{display:flex;flex-direction:column;gap:2px}
+.spsl{font-family:'Share Tech Mono',monospace;font-size:7px;color:var(--text-dim);letter-spacing:1px}
+.spsv{font-family:'Orbitron',monospace;font-size:13px;font-weight:600;color:var(--text-primary)}
+.spsu{font-family:'Share Tech Mono',monospace;font-size:7px;color:var(--accent-cyan-dim);margin-left:1px}
+.spr{margin-top:8px;padding-top:8px;border-top:1px solid var(--border-subtle);display:flex;align-items:center;gap:7px;font-family:'Orbitron',monospace;font-size:10px;font-weight:500;color:var(--text-primary);letter-spacing:2px}
+.rl{flex:1;height:1px;background:linear-gradient(90deg,var(--accent-cyan-dim),transparent);position:relative}
+.rl::after{content:'▶';position:absolute;right:0;top:50%;transform:translateY(-50%);color:var(--accent-cyan-dim);font-size:6px}
+.mctrl{display:flex;flex-direction:column;gap:7px;align-items:flex-end;pointer-events:all}
+.rbtn{background:rgba(0,212,255,0.08);border:1px solid var(--border-active);color:var(--accent-cyan);font-family:'Orbitron',monospace;font-size:8px;letter-spacing:2px;padding:7px 12px;cursor:pointer;clip-path:polygon(5px 0%,100% 0%,calc(100% - 5px) 100%,0% 100%);transition:all 0.2s}
+.rbtn:hover{background:rgba(0,212,255,0.16);box-shadow:var(--glow-cyan)}
+.lup{font-family:'Share Tech Mono',monospace;font-size:8px;color:var(--text-dim);letter-spacing:1px;text-align:right}
+
+/* ACTIVITY LOG */
+.alog-panel{position:absolute;bottom:12px;left:12px;width:260px;background:rgba(3,8,16,0.9);border:1px solid var(--border-subtle);backdrop-filter:blur(12px);pointer-events:all}
+.alh{padding:7px 10px;border-bottom:1px solid var(--border-subtle);font-family:'Orbitron',monospace;font-size:7px;letter-spacing:3px;color:var(--accent-cyan);display:flex;align-items:center;gap:5px}
+.alh::before{content:'';width:2px;height:8px;background:var(--accent-cyan)}
+.alog{padding:5px;max-height:100px;overflow-y:auto}
+.alog::-webkit-scrollbar{width:2px}
+.alog::-webkit-scrollbar-thumb{background:var(--accent-cyan-dim)}
+.ale{display:flex;align-items:baseline;gap:5px;padding:2px 4px;border-bottom:1px solid rgba(0,212,255,0.04);animation:fi 0.3s ease}
+@keyframes fi{from{opacity:0;transform:translateX(-5px)}to{opacity:1;transform:none}}
+.alt{color:var(--text-dim);font-family:'Share Tech Mono',monospace;font-size:7px;white-space:nowrap}
+.alm{font-family:'Share Tech Mono',monospace;font-size:8px;color:var(--text-secondary);line-height:1.4}
+.alm .lc{color:var(--accent-cyan)}.alm .lg{color:var(--accent-green)}.alm .la{color:var(--accent-amber)}
+
+/* COUNTERS */
+.tctr{position:absolute;bottom:12px;right:12px;background:rgba(3,8,16,0.9);border:1px solid var(--border-subtle);padding:8px 14px;text-align:right;pointer-events:none}
+.tl{font-family:'Share Tech Mono',monospace;font-size:7px;color:var(--text-dim);letter-spacing:2px}
+.tv{font-family:'Orbitron',monospace;font-size:18px;font-weight:700;color:var(--accent-amber)}
+
+/* COMPASS */
+.compass{position:absolute;bottom:90px;right:16px;width:52px;height:52px;pointer-events:none}
+.compass svg{width:52px;height:52px}
+
+/* SCAN LINE */
+.scan{position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--accent-cyan),transparent);opacity:0.2;animation:scn 6s ease-in-out infinite;pointer-events:none;z-index:600}
+@keyframes scn{0%{top:0;opacity:0.4}50%{opacity:0.08}100%{top:100%;opacity:0.4}}
+
+/* LEAFLET */
+.leaflet-container{background:#0a1218 !important}
+.leaflet-control-zoom,.leaflet-control-attribution{display:none !important}
+
+/* AIRPORT PIN */
+.apt{display:flex;flex-direction:column;align-items:center}
+.apt-i{width:16px;height:16px;background:rgba(3,8,16,0.8);border:1px solid rgba(0,212,255,0.5);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:8px;transition:all 0.2s}
+.apt-l{font-family:'Orbitron',monospace;font-size:6px;color:rgba(0,212,255,0.8);margin-top:1px;background:rgba(3,8,16,0.7);padding:1px 2px;white-space:nowrap;letter-spacing:0.5px}
+
+/* POPUPS */
+.vectra-popup .leaflet-popup-content-wrapper{background:transparent !important;border:none !important;box-shadow:none !important;padding:0 !important}
+.vectra-popup .leaflet-popup-content{margin:0 !important}
+.vectra-popup .leaflet-popup-tip-container{display:none}
+.vectra-popup .leaflet-popup-close-button{color:#00d4ff !important;top:4px !important;right:7px !important;font-size:13px !important;background:transparent !important;z-index:10}
+.vpop{font-family:'Rajdhani',sans-serif;background:#05101e;border:1px solid rgba(0,212,255,0.35);padding:11px 14px;min-width:200px;box-shadow:0 0 24px rgba(0,212,255,0.12),inset 0 0 30px rgba(0,212,255,0.03)}
+.vpop-fleet{display:inline-block;padding:2px 7px;background:rgba(0,255,157,0.12);border:1px solid rgba(0,255,157,0.35);color:#00ff9d;font-size:8px;letter-spacing:2px;margin-bottom:6px;font-family:'Share Tech Mono',monospace}
+.vpop-call{font-family:'Orbitron',monospace;font-size:16px;font-weight:700;color:#00d4ff;letter-spacing:2px;margin-bottom:2px}
+.vpop-sub{font-family:'Share Tech Mono',monospace;font-size:8px;color:rgba(100,160,190,0.6);letter-spacing:1px;margin-bottom:8px}
+.vpop-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-bottom:8px}
+.vpop-sl{font-family:'Share Tech Mono',monospace;font-size:7px;color:rgba(100,160,190,0.5);letter-spacing:1px}
+.vpop-sv{font-family:'Orbitron',monospace;font-size:12px;color:#e0f4ff}
+.vpop-su{font-size:7px;color:#0099bb}
+.vpop-crumb{margin-top:7px;padding-top:7px;border-top:1px solid rgba(0,212,255,0.12);font-family:'Share Tech Mono',monospace;font-size:8px;color:rgba(100,160,190,0.5)}
+.vpop-btn{margin-top:8px;width:100%;background:rgba(0,212,255,0.08);border:1px solid rgba(0,212,255,0.25);color:#00d4ff;font-family:'Orbitron',monospace;font-size:8px;letter-spacing:2px;padding:5px;cursor:pointer;transition:all 0.2s}
+.vpop-btn:hover{background:rgba(0,212,255,0.18)}
+/* METAR popup */
+.mpop{font-family:'Rajdhani',sans-serif;background:#05101e;border:1px solid rgba(0,212,255,0.35);padding:12px 14px;min-width:220px;max-width:300px;box-shadow:0 0 24px rgba(0,212,255,0.12)}
+.mpop-id{font-family:'Orbitron',monospace;font-size:18px;font-weight:700;color:#00d4ff;letter-spacing:3px;margin-bottom:2px}
+.mpop-name{font-family:'Share Tech Mono',monospace;font-size:9px;color:rgba(100,160,190,0.6);margin-bottom:10px}
+.mpop-metar{font-family:'Share Tech Mono',monospace;font-size:9px;color:#b4daf0;line-height:1.7;background:rgba(0,212,255,0.05);border:1px solid rgba(0,212,255,0.1);padding:7px;margin-bottom:8px;word-break:break-all}
+.mpop-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.mpop-sl{font-family:'Share Tech Mono',monospace;font-size:7px;color:rgba(100,160,190,0.5);letter-spacing:1px}
+.mpop-sv{font-family:'Orbitron',monospace;font-size:12px;color:#e0f4ff}
+.mpop-fl{font-family:'Share Tech Mono',monospace;font-size:8px;padding:3px 7px;display:inline-block;margin-bottom:8px}
+.mpop-fl.vfr{background:rgba(0,255,157,0.12);border:1px solid rgba(0,255,157,0.3);color:#00ff9d}
+.mpop-fl.mvfr{background:rgba(0,140,255,0.12);border:1px solid rgba(0,140,255,0.3);color:#44aaff}
+.mpop-fl.ifr{background:rgba(255,50,50,0.12);border:1px solid rgba(255,50,50,0.3);color:#ff5555}
+.mpop-fl.lifr{background:rgba(200,0,255,0.12);border:1px solid rgba(200,0,255,0.3);color:#cc44ff}
+</style>
+</head>
+<body>
+<div class="cd tl"></div><div class="cd tr"></div><div class="cd bl"></div><div class="cd br"></div>
+
+<header>
+  <div class="logo">
+    <svg viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <polygon points="18,2 34,30 2,30" fill="none" stroke="#00d4ff" stroke-width="1.5" opacity="0.6"/>
+      <polygon points="18,8 28,26 8,26" fill="none" stroke="#00d4ff" stroke-width="1"/>
+      <circle cx="18" cy="18" r="3" fill="#00d4ff"/>
+      <line x1="18" y1="2" x2="18" y2="34" stroke="#00d4ff" stroke-width="0.5" opacity="0.3"/>
+      <line x1="2" y1="18" x2="34" y2="18" stroke="#00d4ff" stroke-width="0.5" opacity="0.3"/>
+    </svg>
+    <div>
+      <div class="logo-text">VECTRA</div>
+      <div class="logo-sub">FLIGHT OPERATIONS CENTER</div>
+    </div>
+  </div>
+  <div class="hstatus">
+    <div class="si"><span class="sl">UTC</span><span class="sv" id="utc">--:--:--</span></div>
+    <div class="si"><span class="sl">TRAFFIC</span><span class="sv" id="hcount" style="color:var(--accent-amber)">—</span></div>
+    <div class="si"><span class="sl">AIRBORNE</span><span class="sv" id="hactive" style="color:var(--accent-green)">0</span></div>
+    <div class="live-badge"><div class="live-dot"></div><span class="live-text">LIVE</span></div>
+  </div>
+</header>
+
+<div class="main">
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <div class="sbh">
+      <span class="stitle">Fleet Registry</span>
+      <span style="font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--text-dim)">7 ACFT</span>
+    </div>
+    <div class="alist" id="alist"></div>
+    <div class="sbf">
+      <div class="fg">
+        <div class="fst"><span class="fsl">AIRBORNE</span><span class="fsv g" id="acount">0</span></div>
+        <div class="fst"><span class="fsl">FLEET</span><span class="fsv c">7</span></div>
+        <div class="fst" style="grid-column:span 2"><span class="fsl">LAST SYNC</span><span class="fsv s" id="lsync">AWAITING...</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAP -->
+  <div class="map-wrap">
+    <div id="map"></div>
+    <div class="scan"></div>
+    <div class="mov">
+      <div class="mtb">
+        <div class="sel-panel">
+          <div class="spl">SELECTED AIRCRAFT</div>
+          <div class="spt" id="spt">—</div>
+          <div class="spg">
+            <div class="sps"><span class="spsl">ALT</span><span class="spsv"><span id="salt">—</span><span class="spsu" id="saltu"></span></span></div>
+            <div class="sps"><span class="spsl">GND SPD</span><span class="spsv"><span id="sspd">—</span><span class="spsu" id="spsdu"></span></span></div>
+            <div class="sps"><span class="spsl">HEADING</span><span class="spsv"><span id="shdg">—</span></span></div>
+            <div class="sps"><span class="spsl">SQUAWK</span><span class="spsv"><span id="ssqk">—</span></span></div>
+          </div>
+          <div class="spr"><span id="sorig">—</span><div class="rl"></div><span id="sdest">—</span></div>
+        </div>
+        <div class="mctrl">
+          <button class="rbtn" onclick="doRefresh()">⟳ REFRESH</button>
+          <button class="rbtn" onclick="clearSelected()" style="font-size:7px">✕ CLEAR SELECT</button>
+          <div class="lup" id="lup">—</div>
+        </div>
+      </div>
+      <div class="alog-panel"><div class="alh">Activity Log</div><div class="alog" id="alog"></div></div>
+      <div class="tctr"><div class="tl">LIVE AIRCRAFT</div><div class="tv" id="tcv">—</div></div>
+      <div class="compass">
+        <svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="32" cy="32" r="30" fill="none" stroke="rgba(0,212,255,0.18)" stroke-width="1"/>
+          <polygon points="32,5 35,30 32,26 29,30" fill="#00d4ff" opacity="0.9"/>
+          <polygon points="32,59 35,34 32,38 29,34" fill="rgba(0,212,255,0.28)"/>
+          <polygon points="5,32 30,29 26,32 30,35" fill="rgba(0,212,255,0.28)"/>
+          <polygon points="59,32 34,29 38,32 34,35" fill="rgba(0,212,255,0.28)"/>
+          <circle cx="32" cy="32" r="2.5" fill="#00d4ff"/>
+          <text x="32" y="3.5" text-anchor="middle" fill="#00d4ff" font-family="Orbitron" font-size="5" font-weight="700">N</text>
+          <text x="32" y="62" text-anchor="middle" fill="rgba(0,212,255,0.4)" font-family="Orbitron" font-size="5">S</text>
+          <text x="62" y="33" text-anchor="middle" fill="rgba(0,212,255,0.4)" font-family="Orbitron" font-size="5">E</text>
+          <text x="2"  y="33" text-anchor="middle" fill="rgba(0,212,255,0.4)" font-family="Orbitron" font-size="5">W</text>
+        </svg>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════
+//  CONFIG
+// ═══════════════════════════════════════════════
+const FLEET       = ['N353JK','N336RS','N2837X','N75600','N733XL','N5713R','N8125B'];
+const T_TRAFFIC   = 15000;   // live traffic refresh ms
+const T_AIRPORTS  = 180000;  // airport layer refresh ms (3 min)
+const MAX_CRUMBS  = 30;      // breadcrumb trail length per aircraft
+const MAX_MARKERS = 12000;   // cap total markers for performance
+
+// ═══════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════
+let map;
+let selectedIcao = null;
+let fleetData    = {};  // tail -> {active,lat,lon,alt,spd,hdg,squawk}
+let liveLayer    = L.layerGroup();  // all live traffic markers
+let liveIndex    = {};  // icao -> marker
+let crumbs       = {};  // icao -> [[lat,lon],...]
+let crumbPaths   = {};  // icao -> L.polyline
+let aptLayer     = L.layerGroup();  // airport markers
+let aptIndex     = {};  // icao -> marker (for METAR updates)
+
+FLEET.forEach(t => {
+  fleetData[t] = {tail:t,active:false,lat:null,lon:null,alt:null,spd:null,hdg:null,squawk:null,icao24:null};
+});
+
+// ═══════════════════════════════════════════════
+//  MAP INIT  — OpenAIP aeronautical tiles
+// ═══════════════════════════════════════════════
+function initMap() {
+  map = L.map('map',{center:[37.5,-96],zoom:5,zoomControl:false,attributionControl:false});
+
+  // Base: OpenStreetMap styled dark — acts as chart base
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_matter/{z}/{x}/{y}{r}.png',{
+    maxZoom:19, subdomains:'abcd'
+  }).addTo(map);
+
+  // Aeronautical overlay: OpenAIP free tiles (VFR sectional-style airspace, navaids, airports)
+  // These are free public tiles, no key required at standard zoom
+  L.tileLayer('https://1.tile.maps.openaip.net/geowebcache/service/tms/1.0.0/openaip_basemap@EPSG%3A900913@png/{z}/{x}/{y}.png',{
+    maxZoom:14, opacity:0.85, tms:true
+  }).addTo(map);
+
+  liveLayer.addTo(map);
+  aptLayer.addTo(map);
+
+  log('SYS','Aeronautical map loaded','lc');
+}
+
+// ═══════════════════════════════════════════════
+//  AIRCRAFT ICONS
+// ═══════════════════════════════════════════════
+function makeIcon(hdg, isFleet, isSelected) {
+  const a = hdg||0;
+  if (isFleet || isSelected) {
+    const color  = isFleet ? '#00ff9d' : '#00d4ff';
+    const shadow = isFleet ? '0 0 8px #00ff9d' : '0 0 8px #00d4ff';
+    return L.divIcon({
+      html:`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32"
+             style="transform:rotate(${a}deg);filter:drop-shadow(${shadow})">
+        <polygon points="16,2 20,24 16,20 12,24" fill="${color}" opacity="0.95"/>
+        <polygon points="16,14 28,22 16,18 4,22"  fill="${color}" opacity="0.7"/>
+        <polygon points="16,20 20,28 16,26 12,28" fill="${color}" opacity="0.45"/>
+        <circle cx="16" cy="16" r="2.5" fill="${color}"/>
+      </svg>`,
+      className:'', iconSize:[32,32], iconAnchor:[16,16]
+    });
+  }
+  // Standard live traffic — small efficient icon
+  return L.divIcon({
+    html:`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12" width="12" height="12"
+           style="transform:rotate(${a}deg)">
+      <polygon points="6,1 7.2,9 6,7.5 4.8,9"    fill="rgba(160,210,255,0.85)"/>
+      <polygon points="6,5.5 11,8.5 6,7 1,8.5"   fill="rgba(160,210,255,0.5)"/>
+      <polygon points="6,8 7.2,11 6,10.2 4.8,11" fill="rgba(160,210,255,0.3)"/>
+    </svg>`,
+    className:'', iconSize:[12,12], iconAnchor:[6,6]
+  });
+}
+
+// ═══════════════════════════════════════════════
+//  LIVE TRAFFIC — OpenSky CORS-enabled public API
+// ═══════════════════════════════════════════════
+async function fetchTraffic() {
+  try {
+    const res = await fetch('https://opensky-network.org/api/states/all',{
+      signal: AbortSignal.timeout(15000)
+    });
+    if (!res.ok) throw new Error('HTTP '+res.status);
+    const data = await res.json();
+    if (!data||!data.states) throw new Error('no data');
+
+    const seen = new Set();
+    let count  = 0;
+    let fleetFound = 0;
+
+    // Reset fleet active flags before processing
+    FLEET.forEach(t => { fleetData[t].active = false; });
+
+    // Process all states — limit render to MAX_MARKERS for perf
+    const states = data.states.slice(0, MAX_MARKERS);
+
+    states.forEach(s => {
+      const icao     = s[0];
+      const raw_cs   = (s[1]||'').trim();
+      const callsign = raw_cs.replace(/\s+/g,'');
+      const lon      = s[5];
+      const lat      = s[6];
+      const altM     = s[7];   // baro alt metres
+      const onGnd    = s[8];
+      const speedMs  = s[9];
+      const hdg      = s[10] ? Math.round(s[10]) : 0;
+      const country  = s[2]||'';
+      const squawk   = s[14]||'';
+      const vertMs   = s[11]; // vertical rate
+
+      if (!lat||!lon) return;
+      seen.add(icao);
+      if (!onGnd) count++;
+
+      const altFt  = altM   ? Math.round(altM   * 3.28084) : null;
+      const spdKt  = speedMs? Math.round(speedMs * 1.94384) : null;
+      const vertFpm= vertMs ? Math.round(vertMs  * 196.85)  : null;
+
+      // Check fleet membership (callsign often matches N-number)
+      const isFleet = FLEET.some(t =>
+        callsign === t ||
+        raw_cs.trim() === t ||
+        callsign.toUpperCase() === t.toUpperCase()
+      );
+
+      // Update fleet data if found
+      if (isFleet) {
+        const matchedTail = FLEET.find(t =>
+          callsign === t || raw_cs.trim() === t || callsign.toUpperCase() === t.toUpperCase()
+        );
+        if (matchedTail) {
+          fleetData[matchedTail] = {
+            tail:matchedTail, active:!onGnd,
+            lat, lon, alt:altFt, spd:spdKt, hdg, squawk, icao24:icao,
+            vert:vertFpm, country
+          };
+          fleetFound++;
+        }
+      }
+
+      // Breadcrumbs
+      if (!onGnd) {
+        if (!crumbs[icao]) crumbs[icao] = [];
+        const last = crumbs[icao][crumbs[icao].length-1];
+        if (!last || last[0]!==lat || last[1]!==lon) {
+          crumbs[icao].push([lat,lon]);
+          if (crumbs[icao].length > MAX_CRUMBS) crumbs[icao].shift();
+        }
+      }
+
+      // Update or create marker
+      const icon = makeIcon(hdg, isFleet, icao===selectedIcao);
+
+      if (liveIndex[icao]) {
+        liveIndex[icao].setLatLng([lat,lon]);
+        liveIndex[icao].setIcon(icon);
+        liveIndex[icao]._meta = {callsign,raw_cs,icao,altFt,spdKt,hdg,country,squawk,vertFpm,isFleet,onGnd};
+      } else {
+        const m = L.marker([lat,lon],{icon, zIndexOffset:isFleet?800:1})
+          .addTo(liveLayer);
+
+        m._meta = {callsign,raw_cs,icao,altFt,spdKt,hdg,country,squawk,vertFpm,isFleet,onGnd};
+        m.on('click', function(){
+          selectAircraft(icao, this._meta, [lat,lon]);
+        });
+        liveIndex[icao] = m;
+      }
+    });
+
+    // Remove markers for departed aircraft
+    Object.keys(liveIndex).forEach(icao => {
+      if (!seen.has(icao)) {
+        liveLayer.removeLayer(liveIndex[icao]);
+        delete liveIndex[icao];
+        if (crumbPaths[icao]) { map.removeLayer(crumbPaths[icao]); delete crumbPaths[icao]; }
+        if (crumbs[icao]) delete crumbs[icao];
+      }
+    });
+
+    // Update crumb trails for ALL aircraft
+    Object.keys(crumbs).forEach(icao => {
+      if (crumbs[icao].length < 2) return;
+      const isFl = liveIndex[icao] && liveIndex[icao]._meta && liveIndex[icao]._meta.isFleet;
+      const isSel= icao === selectedIcao;
+      const col  = isFl ? '#00ff9d' : (isSel ? '#00d4ff' : 'rgba(160,210,255,0.35)');
+      const wt   = isFl || isSel ? 2 : 1;
+      if (crumbPaths[icao]) {
+        crumbPaths[icao].setLatLngs(crumbs[icao]);
+        crumbPaths[icao].setStyle({color:col, weight:wt});
+      } else {
+        crumbPaths[icao] = L.polyline(crumbs[icao],{
+          color:col, weight:wt, opacity:0.6, dashArray:'4,6'
+        }).addTo(map);
+      }
+    });
+
+    // Refresh selected panel if something is selected
+    if (selectedIcao && liveIndex[selectedIcao]) {
+      updatePanel(selectedIcao, liveIndex[selectedIcao]._meta);
+    }
+
+    // Update UI
+    const ts = new Date().toISOString().substr(11,8)+' UTC';
+    document.getElementById('hcount').textContent  = count.toLocaleString();
+    document.getElementById('tcv').textContent     = count.toLocaleString();
+    document.getElementById('lsync').textContent   = ts;
+    document.getElementById('lup').textContent     = 'Synced '+ts;
+
+    const activeFleet = FLEET.filter(t=>fleetData[t].active).length;
+    document.getElementById('acount').textContent  = activeFleet;
+    document.getElementById('hactive').textContent = activeFleet;
+
+    renderSidebar();
+    log('TRAFFIC',`${count.toLocaleString()} airborne · ${fleetFound} fleet`,'la');
+
+  } catch(e) {
+    log('TRAFFIC','Feed error — retrying...','la');
+  }
+}
+
+// ═══════════════════════════════════════════════
+//  AIRPORT DATA — uses overpass API for ALL airports
+// ═══════════════════════════════════════════════
+async function fetchAirports() {
+  log('AIRPORTS','Loading airport database...','lc');
+  try {
+    // Use overpass to get all aeroway=aerodrome in the US bounding box
+    const query = `[out:json][timeout:30];
+node["aeroway"="aerodrome"]["icao"~"^K|^P|^PA"](24,-130,50,-60);
+out body;`;
+    const res = await fetch('https://overpass-api.de/api/interpreter',{
+      method:'POST',
+      body: 'data='+encodeURIComponent(query),
+      signal: AbortSignal.timeout(30000)
+    });
+    if (!res.ok) throw new Error();
+    const data = await res.json();
+
+    aptLayer.clearLayers();
+    aptIndex = {};
+
+    (data.elements||[]).forEach(el => {
+      const icao = el.tags&&(el.tags.icao||el.tags['icao:iata']);
+      const name = el.tags&&(el.tags.name||el.tags['name:en']||icao||'');
+      const lat  = el.lat, lon = el.lon;
+      if (!lat||!lon||!icao) return;
+
+      const icon = L.divIcon({
+        html:`<div class="apt"><div class="apt-i">✈</div><div class="apt-l">${icao}</div></div>`,
+        className:'', iconSize:[30,22], iconAnchor:[15,8]
+      });
+
+      const m = L.marker([lat,lon],{icon, zIndexOffset:0})
+        .addTo(aptLayer)
+        .on('click', function(e){
+          L.DomEvent.stopPropagation(e);
+          showAirportPopup(icao, name, lat, lon, this);
+        });
+
+      aptIndex[icao] = {marker:m, name, lat, lon};
+    });
+
+    log('AIRPORTS',`${Object.keys(aptIndex).length} airports loaded`,'lc');
+  } catch(e) {
+    // Fallback: load a hardcoded set of major US airports
+    loadFallbackAirports();
+  }
+}
+
+function loadFallbackAirports() {
+  const list = [
+    {id:'KATL',n:'Atlanta Hartsfield',lat:33.6407,lon:-84.4277},
+    {id:'KLAX',n:'Los Angeles Intl',lat:33.9425,lon:-118.4081},
+    {id:'KORD',n:"O'Hare Intl",lat:41.9742,lon:-87.9073},
+    {id:'KDFW',n:'Dallas/Fort Worth',lat:32.8998,lon:-97.0403},
+    {id:'KDEN',n:'Denver Intl',lat:39.8561,lon:-104.6737},
+    {id:'KJFK',n:'John F. Kennedy',lat:40.6413,lon:-73.7781},
+    {id:'KSFO',n:'San Francisco Intl',lat:37.6213,lon:-122.379},
+    {id:'KSEA',n:'Seattle-Tacoma',lat:47.4502,lon:-122.3088},
+    {id:'KLAS',n:'Harry Reid Intl',lat:36.084,lon:-115.1537},
+    {id:'KMCO',n:'Orlando Intl',lat:28.4312,lon:-81.3081},
+    {id:'KMIA',n:'Miami Intl',lat:25.7959,lon:-80.287},
+    {id:'KPHX',n:'Phoenix Sky Harbor',lat:33.4373,lon:-112.0078},
+    {id:'KIAH',n:'Bush Intercontinental',lat:29.9902,lon:-95.3368},
+    {id:'KBOS',n:'Logan Intl',lat:42.3656,lon:-71.0096},
+    {id:'KMSP',n:'Minneapolis-St Paul',lat:44.8848,lon:-93.2223},
+    {id:'KDTW',n:'Detroit Metro',lat:42.2124,lon:-83.3534},
+    {id:'KPHL',n:'Philadelphia Intl',lat:39.8729,lon:-75.2437},
+    {id:'KLGA',n:'LaGuardia',lat:40.7769,lon:-73.874},
+    {id:'KCLT',n:'Charlotte Douglas',lat:35.2144,lon:-80.9473},
+    {id:'KSLC',n:'Salt Lake City',lat:40.7899,lon:-111.9791},
+    {id:'KBWI',n:'Baltimore/Washington',lat:39.1754,lon:-76.6682},
+    {id:'KIAD',n:'Dulles Intl',lat:38.9531,lon:-77.4565},
+    {id:'KDCA',n:'Reagan National',lat:38.8521,lon:-77.0377},
+    {id:'KMDW',n:'Midway Intl',lat:41.7868,lon:-87.7522},
+    {id:'KTPA',n:'Tampa Intl',lat:27.9755,lon:-82.5332},
+    {id:'KPDX',n:'Portland Intl',lat:45.5898,lon:-122.5951},
+    {id:'KSTL',n:'St. Louis Lambert',lat:38.7487,lon:-90.37},
+    {id:'KMCI',n:'Kansas City Intl',lat:39.2976,lon:-94.7139},
+    {id:'KBNA',n:'Nashville Intl',lat:36.1263,lon:-86.6774},
+    {id:'KRDU',n:'Raleigh-Durham',lat:35.8801,lon:-78.788},
+    {id:'KMEM',n:'Memphis Intl',lat:35.0424,lon:-89.9767},
+    {id:'KMSY',n:'Louis Armstrong NO',lat:29.9934,lon:-90.258},
+    {id:'KJAX',n:'Jacksonville Intl',lat:30.4941,lon:-81.6879},
+    {id:'KFLL',n:'Fort Lauderdale',lat:26.0726,lon:-80.1527},
+    {id:'KSAN',n:'San Diego Intl',lat:32.7338,lon:-117.1933},
+    {id:'KSMF',n:'Sacramento Intl',lat:38.6954,lon:-121.5908},
+    {id:'KOAK',n:'Oakland Intl',lat:37.7213,lon:-122.2208},
+    {id:'KABQ',n:'Albuquerque Intl',lat:35.0402,lon:-106.609},
+    {id:'KTUL',n:'Tulsa Intl',lat:36.1984,lon:-95.8881},
+    {id:'KOKC',n:'Will Rogers World',lat:35.3931,lon:-97.6007},
+    {id:'KIND',n:'Indianapolis Intl',lat:39.7173,lon:-86.2944},
+    {id:'KCMH',n:'Columbus Intl',lat:39.998,lon:-82.8919},
+    {id:'KPIT',n:'Pittsburgh Intl',lat:40.4915,lon:-80.2329},
+    {id:'KMKE',n:'Milwaukee Mitchell',lat:42.9472,lon:-87.8966},
+    {id:'KHOU',n:'William P Hobby',lat:29.6454,lon:-95.2789},
+    {id:'KRSW',n:'SW Florida Intl',lat:26.5362,lon:-81.7552},
+    {id:'KPBI',n:'Palm Beach Intl',lat:26.6832,lon:-80.0956},
+    {id:'KELP',n:'El Paso Intl',lat:31.8072,lon:-106.3779},
+    {id:'KBUR',n:'Hollywood Burbank',lat:34.2007,lon:-118.3585},
+    {id:'KONT',n:'Ontario Intl',lat:34.056,lon:-117.6012},
+    {id:'KSNA',n:'John Wayne Airport',lat:33.6757,lon:-117.8682},
+    {id:'KAUS',n:'Austin-Bergstrom',lat:30.1975,lon:-97.6664},
+    {id:'KSAT',n:'San Antonio Intl',lat:29.5337,lon:-98.4698},
+    {id:'KELP',n:'El Paso Intl',lat:31.8072,lon:-106.3779},
+    {id:'KBDL',n:'Bradley Intl',lat:41.9389,lon:-72.6832},
+    {id:'KPVD',n:'TF Green Airport',lat:41.7236,lon:-71.4281},
+    {id:'KBUF',n:'Buffalo Niagara',lat:42.9405,lon:-78.7322},
+    {id:'KALB',n:'Albany Intl',lat:42.7483,lon:-73.8018},
+    {id:'KSYR',n:'Syracuse Hancock',lat:43.1112,lon:-76.1063},
+    {id:'KROC',n:'Rochester Intl',lat:43.1189,lon:-77.6724},
+    {id:'KCVG',n:'Cincinnati/NKY',lat:39.0488,lon:-84.6678},
+    {id:'KCLE',n:'Cleveland Hopkins',lat:41.4117,lon:-81.8498},
+    {id:'KCAK',n:'Akron-Canton',lat:40.9161,lon:-81.4422},
+    {id:'KTOL',n:'Toledo Express',lat:41.5868,lon:-83.8078},
+    {id:'KDAY',n:'Dayton Intl',lat:39.9024,lon:-84.2194},
+    {id:'KSDF',n:'Louisville Intl',lat:38.1744,lon:-85.7360},
+    {id:'KLEX',n:'Blue Grass Airport',lat:38.0365,lon:-84.6059},
+    {id:'KBHM',n:'Birmingham Intl',lat:33.5629,lon:-86.7535},
+    {id:'KHSV',n:'Huntsville Intl',lat:34.6372,lon:-86.7751},
+    {id:'KMOB',n:'Mobile Regional',lat:30.6912,lon:-88.2428},
+    {id:'KGPT',n:'Gulfport-Biloxi',lat:30.4073,lon:-89.0701},
+    {id:'KJAN',n:'Jackson-Medgar Evers',lat:32.3112,lon:-90.0759},
+    {id:'KLIT',n:'Little Rock Natl',lat:34.7294,lon:-92.2243},
+    {id:'KFSM',n:'Fort Smith Regional',lat:35.3366,lon:-94.3675},
+    {id:'KXNA',n:'NW Arkansas Regional',lat:36.2819,lon:-94.3068},
+    {id:'KDSM',n:'Des Moines Intl',lat:41.5340,lon:-93.6631},
+    {id:'KOMA',n:'Eppley Airfield',lat:41.3032,lon:-95.8941},
+    {id:'KFAR',n:'Hector Intl',lat:46.9207,lon:-96.8158},
+    {id:'KBIS',n:'Bismarck Municipal',lat:46.7727,lon:-100.7467},
+    {id:'KGFK',n:'Grand Forks Intl',lat:47.9493,lon:-97.1761},
+    {id:'KSUX',n:'Sioux Gateway',lat:42.4026,lon:-96.3844},
+    {id:'KRAP',n:'Rapid City Regional',lat:44.0453,lon:-103.0574},
+    {id:'KABR',n:'Aberdeen Regional',lat:45.4491,lon:-98.4218},
+    {id:'KFSD',n:'Sioux Falls Regional',lat:43.5820,lon:-96.7418},
+    {id:'KMSO',n:'Missoula Intl',lat:46.9163,lon:-114.0906},
+    {id:'KGTF',n:'Great Falls Intl',lat:47.4820,lon:-111.3706},
+    {id:'KBZN',n:'Bozeman Yellowstone',lat:45.7775,lon:-111.1530},
+    {id:'KBIL',n:'Logan Intl MT',lat:45.8077,lon:-108.5428},
+    {id:'KHLN',n:'Helena Regional',lat:46.6068,lon:-111.9833},
+    {id:'KCOE',n:'Coeur d Alene',lat:47.7743,lon:-116.8197},
+    {id:'KBOI',n:'Boise Airport',lat:43.5644,lon:-116.2228},
+    {id:'KIDA',n:'Idaho Falls Regional',lat:43.5146,lon:-112.0707},
+    {id:'KTWF',n:'Magic Valley Regional',lat:42.4818,lon:-114.4878},
+    {id:'KPSC',n:'Tri-Cities Airport',lat:46.2647,lon:-119.1193},
+    {id:'KGEG',n:'Spokane Intl',lat:47.6199,lon:-117.5339},
+    {id:'KYKM',n:'Yakima Air Terminal',lat:46.5682,lon:-120.5440},
+    {id:'KBFI',n:'Boeing Field',lat:47.5300,lon:-122.3019},
+    {id:'KPAE',n:'Paine Field',lat:47.9063,lon:-122.2815},
+    {id:'KOLM',n:'Olympia Regional',lat:46.9694,lon:-122.9027},
+    {id:'KTTD',n:'Portland Troutdale',lat:45.5494,lon:-122.4014},
+    {id:'KHIO',n:'Portland Hillsboro',lat:45.5404,lon:-122.9498},
+    {id:'KEUG',n:'Eugene Airport',lat:44.1246,lon:-123.2119},
+    {id:'KMFR',n:'Rogue Valley Medford',lat:42.3742,lon:-122.8735},
+    {id:'KRDM',n:'Roberts Field Redmond',lat:44.2541,lon:-121.1500},
+    {id:'KAST',n:'Astoria Regional',lat:46.1580,lon:-123.8793},
+    {id:'KNUQ',n:'Moffett Federal',lat:37.4161,lon:-122.0489},
+    {id:'KSJC',n:'San Jose Intl',lat:37.3626,lon:-121.9290},
+    {id:'KMON',n:'Monterey Regional',lat:36.5870,lon:-121.8430},
+    {id:'KFAT',n:'Fresno Yosemite',lat:36.7762,lon:-119.7182},
+    {id:'KBFL',n:'Meadows Field Bakersfield',lat:35.4336,lon:-119.0568},
+    {id:'KSBA',n:'Santa Barbara Municipal',lat:34.4262,lon:-119.8404},
+    {id:'KOXR',n:'Oxnard Airport',lat:34.2009,lon:-119.2071},
+    {id:'KVNY',n:'Van Nuys Airport',lat:34.2098,lon:-118.4900},
+    {id:'KLGB',n:'Long Beach Airport',lat:33.8177,lon:-118.1516},
+    {id:'KPSP',n:'Palm Springs Intl',lat:33.8297,lon:-116.5076},
+    {id:'KCRQ',n:'McClellan-Palomar',lat:33.1283,lon:-117.2800},
+    {id:'KIPL',n:'Imperial County',lat:32.8342,lon:-115.5790},
+    {id:'KYUM',n:'Yuma Intl',lat:32.6566,lon:-114.6060},
+    {id:'KPHX',n:'Phoenix Sky Harbor',lat:33.4373,lon:-112.0078},
+    {id:'KPRC',n:'Prescott Intl',lat:34.6549,lon:-112.4197},
+    {id:'KFHU',n:'Sierra Vista Municipal',lat:31.5885,lon:-110.3438},
+    {id:'KTUS',n:'Tucson Intl',lat:32.1161,lon:-110.9410},
+    {id:'KFLG',n:'Flagstaff Pulliam',lat:35.1385,lon:-111.6715},
+    {id:'KGCN',n:'Grand Canyon National Park',lat:35.9524,lon:-112.1470},
+    {id:'KSGU',n:'St George Regional',lat:37.0363,lon:-113.5103},
+    {id:'KPVU',n:'Provo Municipal',lat:40.2192,lon:-111.7229},
+    {id:'KOGD',n:'Ogden-Hinckley',lat:41.1959,lon:-112.0120},
+    {id:'KCDC',n:'Cedar City Regional',lat:37.7010,lon:-113.0988},
+    {id:'KPAM',n:'Tyndall AFB',lat:30.0696,lon:-85.5754},
+    {id:'KPNS',n:'Pensacola Intl',lat:30.4734,lon:-87.1866},
+    {id:'KGNV',n:'Gainesville Regional',lat:29.6900,lon:-82.2717},
+    {id:'KTLH',n:'Tallahassee Intl',lat:30.3965,lon:-84.3503},
+    {id:'KDAB',n:'Daytona Beach Intl',lat:29.1799,lon:-81.0581},
+    {id:'KSFB',n:'Orlando Sanford',lat:28.7776,lon:-81.2375},
+    {id:'KPIE',n:'St Pete-Clearwater',lat:27.9102,lon:-82.6874},
+    {id:'KSRQ',n:'Sarasota-Bradenton',lat:27.3954,lon:-82.5544},
+    {id:'KAPF',n:'Naples Municipal',lat:26.1526,lon:-81.7759},
+    {id:'KHPN',n:'Westchester County',lat:41.0670,lon:-73.7076},
+    {id:'KSWF',n:'Stewart Intl',lat:41.5041,lon:-74.1048},
+    {id:'KISP',n:'Long Island MacArthur',lat:40.7952,lon:-73.1002},
+    {id:'KEWR',n:'Newark Liberty',lat:40.6895,lon:-74.1745},
+    {id:'KTEB',n:'Teterboro Airport',lat:40.8501,lon:-74.0608},
+  ];
+
+  aptLayer.clearLayers();
+  aptIndex = {};
+  list.forEach(ap => {
+    const icon = L.divIcon({
+      html:`<div class="apt"><div class="apt-i">✈</div><div class="apt-l">${ap.id}</div></div>`,
+      className:'', iconSize:[30,22], iconAnchor:[15,8]
+    });
+    L.marker([ap.lat,ap.lon],{icon,zIndexOffset:0})
+      .addTo(aptLayer)
+      .on('click',function(e){
+        L.DomEvent.stopPropagation(e);
+        showAirportPopup(ap.id, ap.n, ap.lat, ap.lon, this);
+      });
+    aptIndex[ap.id] = {name:ap.n, lat:ap.lat, lon:ap.lon};
+  });
+  log('AIRPORTS',`${list.length} airports (fallback set)`,'lc');
+}
+
+// ═══════════════════════════════════════════════
+//  METAR — avwx.rest free public API (no key for basic)
+// ═══════════════════════════════════════════════
+async function fetchMETAR(icao) {
+  try {
+    // Use aviationweather.gov — completely free, no key
+    const res = await fetch(
+      `https://aviationweather.gov/api/data/metar?ids=${icao}&format=json`,
+      { signal: AbortSignal.timeout(8000) }
+    );
+    if (!res.ok) throw new Error();
+    const data = await res.json();
+    if (!data||!data.length) throw new Error('no metar');
+    return data[0];
+  } catch(e) {
+    return null;
+  }
+}
+
+async function showAirportPopup(icao, name, lat, lon, marker) {
+  // Show loading popup first
+  const loadPop = L.popup({className:'vectra-popup',maxWidth:300})
+    .setLatLng([lat,lon])
+    .setContent(`<div class="mpop"><div class="mpop-id">${icao}</div><div class="mpop-name">${name}</div><div class="mpop-metar" style="color:var(--text-dim)">Fetching METAR...</div></div>`)
+    .openOn(map);
+
+  const m = await fetchMETAR(icao);
+
+  let content;
+  if (m) {
+    const vis    = m.visib  != null ? m.visib+' SM'  : '—';
+    const wind   = m.wdir   != null ? `${m.wdir}° @ ${m.wspd||0}kt` : '—';
+    const temp   = m.temp   != null ? m.temp+'°C'   : '—';
+    const dewp   = m.dewp   != null ? m.dewp+'°C'   : '—';
+    const altim  = m.altim  != null ? m.altim+' inHg': '—';
+    const ceil   = m.clouds ? (m.clouds.find(c=>c.cover==='BKN'||c.cover==='OVC')?.base||null) : null;
+    const sky    = ceil!=null ? ceil*100+' ft' : 'CLEAR';
+    const rawTxt = m.rawOb  || m.metar || '—';
+    // Flight category
+    const cat    = m.fltcat||m.flightCategory||'';
+    const catCls = cat==='VFR'?'vfr':cat==='MVFR'?'mvfr':cat==='IFR'?'ifr':cat==='LIFR'?'lifr':'vfr';
+
+    content = `<div class="mpop">
+      <div class="mpop-id">${icao}</div>
+      <div class="mpop-name">${name}</div>
+      ${cat?`<div class="mpop-fl ${catCls}">${cat}</div>`:''}
+      <div class="mpop-metar">${rawTxt}</div>
+      <div class="mpop-grid">
+        <div><div class="mpop-sl">WIND</div><div class="mpop-sv">${wind}</div></div>
+        <div><div class="mpop-sl">VISIBILITY</div><div class="mpop-sv">${vis}</div></div>
+        <div><div class="mpop-sl">CEILING</div><div class="mpop-sv">${sky}</div></div>
+        <div><div class="mpop-sl">TEMP/DP</div><div class="mpop-sv">${temp} / ${dewp}</div></div>
+        <div><div class="mpop-sl">ALTIMETER</div><div class="mpop-sv">${altim}</div></div>
+        <div><div class="mpop-sl">COORDS</div><div class="mpop-sv" style="font-size:9px">${lat.toFixed(3)}N ${Math.abs(lon).toFixed(3)}W</div></div>
+      </div>
+    </div>`;
+  } else {
+    content = `<div class="mpop">
+      <div class="mpop-id">${icao}</div>
+      <div class="mpop-name">${name}</div>
+      <div class="mpop-metar" style="color:rgba(255,80,80,0.8)">METAR unavailable for this station</div>
+      <div class="mpop-grid">
+        <div><div class="mpop-sl">COORDS</div><div class="mpop-sv" style="font-size:9px">${lat.toFixed(3)}N ${Math.abs(lon).toFixed(3)}W</div></div>
+      </div>
+    </div>`;
+  }
+
+  loadPop.setContent(content);
+}
+
+// ═══════════════════════════════════════════════
+//  AIRCRAFT SELECTION
+// ═══════════════════════════════════════════════
+function selectAircraft(icao, meta, latlng) {
+  // Deselect previous
+  if (selectedIcao && selectedIcao !== icao && liveIndex[selectedIcao]) {
+    const pm = liveIndex[selectedIcao]._meta;
+    if (pm) liveIndex[selectedIcao].setIcon(makeIcon(pm.hdg, pm.isFleet, false));
+  }
+
+  selectedIcao = icao;
+
+  // Update icon to selected style
+  if (liveIndex[icao]) {
+    liveIndex[icao].setIcon(makeIcon(meta.hdg, meta.isFleet, true));
+  }
+
+  // Update breadcrumb style
+  if (crumbPaths[icao]) {
+    crumbPaths[icao].setStyle({color:'#00d4ff',weight:2,opacity:0.8});
+  }
+
+  // If fleet tail, select in sidebar
+  if (meta.isFleet) {
+    const tail = FLEET.find(t =>
+      meta.callsign===t || meta.raw_cs.trim()===t || meta.callsign.toUpperCase()===t.toUpperCase()
+    );
+    if (tail) {
+      document.querySelectorAll('.ac-card').forEach(c=>c.classList.remove('sel'));
+      const card = document.getElementById('c-'+tail);
+      if (card) card.classList.add('sel');
+    }
+  }
+
+  updatePanel(icao, meta);
+  map.flyTo(latlng, Math.max(map.getZoom(), 9), {duration:1.2});
+
+  // Show popup
+  if (liveIndex[icao]) {
+    liveIndex[icao].bindPopup(
+      makeAcPopup(meta, icao),
+      {className:'vectra-popup', maxWidth:260}
+    ).openPopup();
+  }
+}
+
+function clearSelected() {
+  if (selectedIcao && liveIndex[selectedIcao]) {
+    const pm = liveIndex[selectedIcao]._meta;
+    if (pm) liveIndex[selectedIcao].setIcon(makeIcon(pm.hdg, pm.isFleet, false));
+    if (crumbPaths[selectedIcao]) {
+      const isFl = pm && pm.isFleet;
+      crumbPaths[selectedIcao].setStyle({color: isFl?'#00ff9d':'rgba(160,210,255,0.35)', weight: isFl?2:1});
+    }
+  }
+  selectedIcao = null;
+  document.querySelectorAll('.ac-card').forEach(c=>c.classList.remove('sel'));
+  // Reset panel
+  document.getElementById('spt').textContent   = '—';
+  document.getElementById('salt').textContent  = '—';
+  document.getElementById('saltu').textContent = '';
+  document.getElementById('sspd').textContent  = '—';
+  document.getElementById('spsdu').textContent = '';
+  document.getElementById('shdg').textContent  = '—';
+  document.getElementById('ssqk').textContent  = '—';
+  document.getElementById('sorig').textContent = '—';
+  document.getElementById('sdest').textContent = '—';
+}
+
+function makeAcPopup(meta, icao) {
+  const crumbCount = crumbs[icao] ? crumbs[icao].length : 0;
+  return `<div class="vpop">
+    ${meta.isFleet?'<div class="vpop-fleet">★ FLEET AIRCRAFT</div>':''}
+    <div class="vpop-call">${meta.callsign||meta.raw_cs||icao}</div>
+    <div class="vpop-sub">ICAO24: ${icao.toUpperCase()}${meta.country?' · '+meta.country:''}</div>
+    <div class="vpop-grid">
+      <div><div class="vpop-sl">ALT</div><div class="vpop-sv">${meta.altFt!=null?meta.altFt.toLocaleString():'—'}<span class="vpop-su">${meta.altFt!=null?' ft':''}</span></div></div>
+      <div><div class="vpop-sl">GS</div><div class="vpop-sv">${meta.spdKt!=null?meta.spdKt:'—'}<span class="vpop-su">${meta.spdKt!=null?' kt':''}</span></div></div>
+      <div><div class="vpop-sl">HDG</div><div class="vpop-sv">${meta.hdg!=null?meta.hdg+'°':'—'}</div></div>
+      <div><div class="vpop-sl">SQUAWK</div><div class="vpop-sv">${meta.squawk||'—'}</div></div>
+      <div><div class="vpop-sl">STATUS</div><div class="vpop-sv" style="font-size:9px">${meta.onGnd?'ON GROUND':'AIRBORNE'}</div></div>
+      <div><div class="vpop-sl">TRAIL PTS</div><div class="vpop-sv">${crumbCount}</div></div>
+    </div>
+    ${meta.vertFpm!=null?`<div class="vpop-crumb">VERT RATE: ${meta.vertFpm>0?'+':''}${meta.vertFpm} fpm</div>`:''}
+  </div>`;
+}
+
+function updatePanel(icao, meta) {
+  const label = meta.callsign || meta.raw_cs || icao;
+  document.getElementById('spt').textContent    = label.toUpperCase();
+  document.getElementById('salt').textContent   = meta.altFt!=null ? meta.altFt.toLocaleString() : '—';
+  document.getElementById('saltu').textContent  = meta.altFt!=null ? ' ft' : '';
+  document.getElementById('sspd').textContent   = meta.spdKt!=null ? meta.spdKt : '—';
+  document.getElementById('spsdu').textContent  = meta.spdKt!=null ? ' kts' : '';
+  document.getElementById('shdg').textContent   = meta.hdg!=null   ? meta.hdg+'°' : '—';
+  document.getElementById('ssqk').textContent   = meta.squawk||'—';
+  document.getElementById('sorig').textContent  = '—';
+  document.getElementById('sdest').textContent  = '—';
+}
+
+// ═══════════════════════════════════════════════
+//  SIDEBAR
+// ═══════════════════════════════════════════════
+function renderSidebar() {
+  const list = document.getElementById('alist');
+  list.innerHTML = '';
+  FLEET.forEach(tail => {
+    const ac   = fleetData[tail];
+    const card = document.createElement('div');
+    card.className = 'ac-card'+(selectedIcao&&ac.icao24===selectedIcao?' sel':'');
+    card.id = 'c-'+tail;
+    card.onclick = () => {
+      if (ac.active && ac.lat && ac.lon && ac.icao24) {
+        selectAircraft(ac.icao24, {
+          callsign:tail, raw_cs:tail, icao:ac.icao24,
+          altFt:ac.alt, spdKt:ac.spd, hdg:ac.hdg,
+          squawk:ac.squawk, country:'USA', vertFpm:null,
+          isFleet:true, onGnd:!ac.active
+        }, [ac.lat,ac.lon]);
+      }
+    };
+    const altTxt = ac.active&&ac.alt !=null ? ac.alt.toLocaleString() : '—';
+    const spdTxt = ac.active&&ac.spd !=null ? ac.spd                  : '—';
+    const hdgTxt = ac.active&&ac.hdg !=null ? ac.hdg+'°'              : '—';
+    card.innerHTML = `
+      <div class="ct">
+        <span class="tn">${tail}</span>
+        <span class="fs ${ac.active?'on':'off'}"><span class="sd"></span>${ac.active?'AIRBORNE':'GROUNDED'}</span>
+      </div>
+      <div class="cs">
+        <div class="cb"><span class="cl">ALT</span><span class="cv ${!ac.active?'na':''}">${altTxt}<span style="font-size:7px;color:var(--accent-cyan-dim)">${ac.active&&ac.alt?'ft':''}</span></span></div>
+        <div class="cb"><span class="cl">GS</span><span class="cv ${!ac.active?'na':''}">${spdTxt}<span style="font-size:7px;color:var(--accent-cyan-dim)">${ac.active&&ac.spd?'kt':''}</span></span></div>
+        <div class="cb"><span class="cl">HDG</span><span class="cv ${!ac.active?'na':''}">${hdgTxt}</span></div>
+      </div>
+      ${ac.active?`<div class="cr"><span>SQK: ${ac.squawk||'—'}</span></div>`:''}
+    `;
+    list.appendChild(card);
+  });
+}
+
+// ═══════════════════════════════════════════════
+//  ACTIVITY LOG
+// ═══════════════════════════════════════════════
+function log(src, msg, cls) {
+  const el = document.getElementById('alog');
+  const t  = new Date().toISOString().substr(11,8);
+  const e  = document.createElement('div');
+  e.className = 'ale';
+  e.innerHTML = `<span class="alt">${t}</span><span class="alm"><span class="${cls||''}">${src}</span> ${msg}</span>`;
+  el.prepend(e);
+  while (el.children.length>30) el.removeChild(el.lastChild);
+}
+
+// ═══════════════════════════════════════════════
+//  CONTROLS
+// ═══════════════════════════════════════════════
+function doRefresh() { fetchTraffic(); }
+
+// ═══════════════════════════════════════════════
+//  CLOCK
+// ═══════════════════════════════════════════════
+function tick() {
+  const n=new Date(),p=x=>String(x).padStart(2,'0');
+  document.getElementById('utc').textContent=`${p(n.getUTCHours())}:${p(n.getUTCMinutes())}:${p(n.getUTCSeconds())}`;
+}
+
+// ═══════════════════════════════════════════════
+//  BOOT
+// ═══════════════════════════════════════════════
+window.addEventListener('DOMContentLoaded', () => {
+  initMap();
+  renderSidebar();
+  tick();
+  setInterval(tick, 1000);
+
+  // Stagger initial loads
+  fetchTraffic();
+  setTimeout(fetchAirports, 2000);
+
+  // Refresh intervals
+  setInterval(fetchTraffic,  T_TRAFFIC);
+  setInterval(fetchAirports, T_AIRPORTS);
+
+  log('SYS','VECTRA online · monitoring 7 fleet aircraft','lc');
+  log('SYS','Click any aircraft for details + breadcrumbs','lc');
+  log('SYS','Click any airport for live METAR data','lc');
+});
+</script>
+</body>
+</html>
